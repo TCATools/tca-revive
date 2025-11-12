@@ -1,0 +1,4 @@
+# When set to false, ignores files with "GENERATED" header, similar to golin
+ignoreGeneratedHeader = false
+
+# set rules
