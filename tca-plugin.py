@@ -59,7 +59,14 @@ class Revive():
         incr_scan = self.params["incr_scan"]
         want_suffix = (".go")
         scan_cmd = [self.tool, "-formatter", "json"]
-        rules = params["rule_list"]
+        # rules去重
+        rule_list = params["rule_list"]
+        rule_names = set()
+        rules = []
+        for r in rule_list:
+            if r["name"] not in rule_names:
+                rule_names.add(r["name"])
+                rules.append(r)
         # 如果未指定配置文件，则使用默认配置
         config_file = self._get_config(rules)
         scan_cmd.extend(["-config", config_file])
