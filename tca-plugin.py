@@ -1,5 +1,10 @@
 # -*- encoding: utf-8 -*-
-
+'''
+revive
+./.. 可以解析多个mod, 子mod
+a/a.go a/b.go会分为两个package分析
+会对pacakge中的文件遍历分析, 部分规则需要pacakge完整信息, 更建议以package为维度进行分析
+'''
 import os
 import json
 import platform
@@ -8,6 +13,12 @@ import subprocess
 PWD = os.getcwd()
 WOORK_DIR = os.environ.get("RESULT_DIR")
 SOURCE_DIR = os.environ.get("SOURCE_DIR")
+
+def decode_str(text) -> str:
+    try:
+        return text.decode(encoding='UTF-8')
+    except UnicodeDecodeError:
+        return text.decode(encoding="gbk", errors="surrogateescape")
 
 def get_task_params():
     """
@@ -49,6 +60,8 @@ class Revive():
             fw.write("ignoreGeneratedHeader = false\n")
             for rule in rules:
                 rule_name = rule["name"]
+                if rule_name == "syntax-error":
+                    continue
                 fw.write(f"[rule.{rule_name}]\n")
         return tca_config
         
@@ -70,32 +83,63 @@ class Revive():
         # 如果未指定配置文件，则使用默认配置
         config_file = self._get_config(rules)
         scan_cmd.extend(["-config", config_file])
-        toscan = []
-        if incr_scan:
-            with open(os.getenv("SCAN_FILES"), "r") as fr:
-                task_file = json.load(fr)
-            for file in task_file:
-                if file.endswith(want_suffix):
-                    toscan.append(file)
-            if len(" ".join(toscan)) > 100000:
-                toscan = ["./..."]
-        else:
-            toscan = ["./..."]
-        if not toscan:
-            return issues
+        toscan = ["./..."]
+        # if incr_scan:
+        #     with open(os.getenv("SCAN_FILES"), "r") as fr:
+        #         task_file = json.load(fr)
+        #     for file in task_file:
+        #         if file.endswith(want_suffix):
+        #             toscan.append(file)
+        #     if len(" ".join(toscan)) > 100000:
+        #         toscan = ["./..."]
+        # else:
+        #     toscan = ["./..."]
+        # if not toscan:
+        #     return issues
         scan_cmd.extend(toscan)
         print(scan_cmd)
         with open(issues_file, "w") as fw:
             sp = subprocess.Popen(scan_cmd, cwd=SOURCE_DIR, stdout=fw, stderr=subprocess.PIPE)
             _, stderr = sp.communicate(timeout=int(os.environ.get("TCA_TASK_TIMEOUT", "6000")))
         if stderr:
+            stderr_str = decode_str(stderr)
             print(stderr)
-            raise Exception(stderr.decode())
-        with open(issues_file, "r") as fr:
-            datas = json.load(fp=fr)
-        print(datas)
-        # 无问题时datas为None
-        if not datas:
+            # 解析stderr中的错误信息
+            for line in stderr_str.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                # 匹配格式: 2026/01/21 20:10:39 a/b.go:1:1: expected 'package', found a
+                # 先按空格分割, 去掉时间戳部分
+                time_parts = line.split(' ', 2)
+                if len(time_parts) >= 3:
+                    # 对剩余内容按冒号分割
+                    content_parts = time_parts[2].split(':', 3)
+                    if len(content_parts) >= 4:
+                        file_path = content_parts[0].strip()
+                        if not os.path.exists(os.path.join(SOURCE_DIR, file_path)):
+                            continue
+                        line_num = int(content_parts[1])
+                        col_num = int(content_parts[2])
+                        error_msg = content_parts[3].strip()
+                        issues.append({
+                            "path": file_path,
+                            "rule": "syntax-error",
+                            "msg": error_msg,
+                            "line": line_num,
+                            "column": col_num,
+                        })
+            # raise Exception(stderr.decode())
+        # 分析异常时可能生成空文件导致读取异常
+        try:
+            with open(issues_file, "r") as fr:
+                datas = json.load(fp=fr)
+            print(datas)
+            # 无问题时datas为None
+            if not datas:
+                return issues
+        except Exception as err:
+            print(f"解析结果异常: {err}")
             return issues
         for data in datas:
             issue_rule = data["RuleName"]
