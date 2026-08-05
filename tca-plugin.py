@@ -45,7 +45,10 @@ class Revive():
             else:
                 return os.path.join(PWD, "bin", "linux", "amd64", "revive")
         elif system == "Darwin":
-            return os.path.join(PWD, "bin", "darwin", "amd64", "revive")
+            if platform.machine() == "aarch64":
+                return os.path.join(PWD, "bin", "darwin", "arm64", "revive")
+            else:
+                return os.path.join(PWD, "bin", "darwin", "amd64", "revive")
         elif system == "Windows":
             return os.path.join(PWD, "bin", "windows", "amd64", "revive.exe")
         else:
